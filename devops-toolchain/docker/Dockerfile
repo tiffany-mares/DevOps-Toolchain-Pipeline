@@ -44,9 +44,9 @@ RUN chown -R appuser:appgroup /app
 # Switch to non-root user
 USER appuser
 
-# Health check
+# Health check - exit 0 if healthy, exit 1 otherwise
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD node -e "require('./index').healthCheck()" || exit 1
+    CMD node -e "const h = require('./index').healthCheck(); process.exit(h.status === 'healthy' ? 0 : 1)"
 
 # Entrypoint - runs the service with any passed arguments
 ENTRYPOINT ["node", "index.js"]
