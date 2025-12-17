@@ -4,6 +4,29 @@ A fully automated CI/CD pipeline demonstrating end-to-end DevOps ownership, mult
 
 ---
 
+## 🏗️ Architecture
+
+![DevOps Toolchain Architecture](docs/architecture.png)
+
+**Flow A - Local Development:**
+`Developer → devopsctl → scripts → local outputs`
+
+**Flow B - CI/CD Pipeline:**
+`Git push → Jenkins → artifacts → registries`
+
+| Component | Description |
+|-----------|-------------|
+| **Developer Workstation** | Linux/macOS environment running internal CLI locally |
+| **Git Repository** | Source of truth: automation code, Jenkinsfile, Dockerfile, scripts |
+| **Internal CLI (devopsctl)** | Commands: lint, test, build, docker, publish, all |
+| **Jenkins CI/CD Pipeline** | Stages: Checkout → Lint → Unit Tests → Build → Docker → Publish → Archive |
+| **Build Environment** | Runners: Linux/macOS agents, Tooling: Node.js/NPM, Docker Engine |
+| **Artifact Registry** | Publishes: NPM package (.tgz), version tags, build logs |
+| **Container Registry** | Publishes: `tool-name:x.y.z-<commit>` |
+| **Artifacts & Reports** | Outputs: packaged artifact, Docker image tag, archived logs, test results |
+
+---
+
 ## 🎯 Skills Demonstrated
 
 | Skill Area | Implementation |
