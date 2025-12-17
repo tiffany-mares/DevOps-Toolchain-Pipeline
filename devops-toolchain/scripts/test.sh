@@ -1,43 +1,50 @@
 #!/bin/bash
 # =============================================================================
-# test.sh - Run unit tests
+# test.sh - Run Jest unit tests with JUnit reporting
+# Jenkins Stage: Test
+# Pipeline FAILS if tests fail
 # =============================================================================
 
-set -e
+set -e  # Exit on error - pipeline will FAIL if tests fail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-echo "🧪 Running unit tests..."
-echo "Project root: $PROJECT_ROOT"
+echo "=========================================="
+echo "TEST STAGE"
+echo "=========================================="
 
 cd "$PROJECT_ROOT"
 
-# Create reports directory if it doesn't exist
+# Create reports directory
 mkdir -p reports
 
-# Check if pytest is available
-if command -v pytest &> /dev/null; then
-    echo ""
-    echo "━━━ Running pytest ━━━"
-    pytest service/tests/ \
-        -v \
-        --tb=short \
-        --junitxml=reports/junit.xml \
-        --cov=service/src \
-        --cov-report=html:reports/coverage \
-        --cov-report=term-missing \
-        || true
-else
-    echo "⚠️  pytest not installed, attempting with python -m pytest..."
-    python -m pytest service/tests/ \
-        -v \
-        --tb=short \
-        --junitxml=reports/junit.xml \
-        || echo "⚠️  Tests could not be run. Install pytest: pip install pytest"
+cd service
+
+echo "Running Jest tests with JUnit reporter..."
+
+# Run Jest with JUnit reporter for Jenkins
+npm run test:ci
+
+# Copy JUnit report to project reports directory
+if [ -f "junit.xml" ]; then
+    mv junit.xml "$PROJECT_ROOT/reports/junit.xml"
+    echo "[OK] JUnit report: reports/junit.xml"
 fi
 
-echo ""
-echo "✅ Testing completed!"
-echo "📊 Reports available in: $PROJECT_ROOT/reports/"
+cd "$PROJECT_ROOT"
 
+# Generate latest.json report
+cat > "reports/latest.json" << EOF
+{
+    "stage": "test",
+    "status": "passed",
+    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")",
+    "version": "$(cat VERSION 2>/dev/null || echo "0.1.0")",
+    "commit": "$(git rev-parse --short HEAD 2>/dev/null || echo "local")"
+}
+EOF
+echo "[OK] Report: reports/latest.json"
+
+echo ""
+echo "[OK] Test stage completed successfully"

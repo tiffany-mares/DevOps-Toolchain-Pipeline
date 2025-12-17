@@ -1,6 +1,8 @@
 #!/bin/bash
 # =============================================================================
-# build.sh - Build Python package
+# build.sh - Build NPM package with version tagging
+# Jenkins Stage: Build
+# Artifact naming: name-version-commit.tgz
 # =============================================================================
 
 set -e
@@ -8,57 +10,60 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-echo "🏗️  Building package..."
-echo "Project root: $PROJECT_ROOT"
+echo "=========================================="
+echo "BUILD STAGE"
+echo "=========================================="
 
 cd "$PROJECT_ROOT"
 
-# Read version from VERSION file or default
-if [ -f "VERSION" ]; then
-    VERSION=$(cat VERSION)
-else
-    VERSION="0.1.0"
-    echo "$VERSION" > VERSION
-fi
+# =============================================================================
+# Version Source: VERSION file (single source of truth)
+# =============================================================================
+VERSION=$(cat VERSION 2>/dev/null || echo "0.1.0")
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "local")
+NAME="devops-toolchain-service"
 
-echo "📦 Building version: $VERSION"
+echo "Name:    $NAME"
+echo "Version: $VERSION"
+echo "Commit:  $COMMIT"
+echo "Tag:     ${NAME}-${VERSION}-${COMMIT}"
+echo ""
 
 # Clean previous builds
-echo ""
-echo "━━━ Cleaning previous builds ━━━"
-rm -rf dist/ build/ *.egg-info service/*.egg-info
-
-# Create dist directory
+rm -rf dist
 mkdir -p dist
 
-# Check if build tools are available
-if command -v python &> /dev/null; then
+cd service
+
+# Sync VERSION to package.json
+echo "Syncing version to package.json..."
+npm version "$VERSION" --no-git-tag-version --allow-same-version 2>/dev/null || true
+
+# Build NPM package
+echo ""
+echo "Running npm pack..."
+npm pack
+
+# Rename artifact with commit hash: name-version-commit.tgz
+ORIGINAL_TGZ="${NAME}-${VERSION}.tgz"
+TAGGED_TGZ="${NAME}-${VERSION}-${COMMIT}.tgz"
+
+if [ -f "$ORIGINAL_TGZ" ]; then
+    mv "$ORIGINAL_TGZ" "$PROJECT_ROOT/dist/${TAGGED_TGZ}"
     echo ""
-    echo "━━━ Building Python package ━━━"
-    
-    # Check for pyproject.toml or setup.py
-    if [ -f "pyproject.toml" ]; then
-        python -m build || echo "⚠️  python-build not installed. Install with: pip install build"
-    elif [ -f "setup.py" ]; then
-        python setup.py sdist bdist_wheel || echo "⚠️  setuptools/wheel not installed"
-    else
-        # Create a simple source archive
-        echo "Creating source archive..."
-        tar -czvf "dist/devops-toolchain-${VERSION}.tar.gz" \
-            --exclude='dist' \
-            --exclude='reports' \
-            --exclude='*.pyc' \
-            --exclude='__pycache__' \
-            --exclude='.git' \
-            service/ cli/ scripts/
-    fi
-else
-    echo "⚠️  Python not found!"
-    exit 1
+    echo "[OK] Artifact: dist/${TAGGED_TGZ}"
 fi
 
+# Also keep a latest copy without commit hash for convenience
+cp "$PROJECT_ROOT/dist/${TAGGED_TGZ}" "$PROJECT_ROOT/dist/${NAME}-${VERSION}.tgz"
+
+cd "$PROJECT_ROOT"
+
 echo ""
-echo "✅ Build completed!"
-echo "📦 Artifacts available in: $PROJECT_ROOT/dist/"
+echo "=========================================="
+echo "BUILD ARTIFACTS"
+echo "=========================================="
 ls -la dist/
 
+echo ""
+echo "[OK] Build stage completed successfully"

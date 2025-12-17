@@ -1,44 +1,23 @@
 #!/bin/bash
 # =============================================================================
-# lint.sh - Run code linting checks
+# lint.sh - Run ESLint for Node.js
+# Jenkins Stage: Lint
+# Pipeline FAILS if lint fails
 # =============================================================================
 
-set -e
+set -e  # Exit on error - pipeline will FAIL if lint fails
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-echo "🔍 Running linters..."
-echo "Project root: $PROJECT_ROOT"
+echo "=========================================="
+echo "LINT STAGE"
+echo "=========================================="
 
-cd "$PROJECT_ROOT"
+cd "$PROJECT_ROOT/service"
 
-# Check if Python linters are available
-if command -v flake8 &> /dev/null; then
-    echo ""
-    echo "━━━ Running flake8 ━━━"
-    flake8 service/src/ cli/ --max-line-length=100 --ignore=E501,W503 || true
-else
-    echo "⚠️  flake8 not installed, skipping..."
-fi
-
-if command -v black &> /dev/null; then
-    echo ""
-    echo "━━━ Running black (check mode) ━━━"
-    black --check --diff service/src/ cli/ || true
-else
-    echo "⚠️  black not installed, skipping..."
-fi
-
-# Check for pylint
-if command -v pylint &> /dev/null; then
-    echo ""
-    echo "━━━ Running pylint ━━━"
-    pylint service/src/ cli/ --disable=C0114,C0115,C0116 --exit-zero || true
-else
-    echo "⚠️  pylint not installed, skipping..."
-fi
+echo "Running ESLint..."
+npm run lint
 
 echo ""
-echo "✅ Linting completed!"
-
+echo "[OK] Lint stage completed successfully"

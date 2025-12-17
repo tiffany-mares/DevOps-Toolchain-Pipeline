@@ -1,90 +1,147 @@
 pipeline {
     agent any
 
+    tools {
+        nodejs 'NodeJS-20'  // Configure in: Manage Jenkins → Tools
+    }
+
     environment {
-        DOCKER_REGISTRY = 'localhost:5000'
         IMAGE_NAME = 'devops-toolchain'
         VERSION = sh(script: 'cat VERSION 2>/dev/null || echo "0.1.0"', returnStdout: true).trim()
         COMMIT_HASH = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-        IMAGE_TAG = "${VERSION}-${COMMIT_HASH}"
+    }
+
+    triggers {
+        // Git push triggers pipeline (requires webhook or polling)
+        pollSCM('H/5 * * * *')  // Poll every 5 minutes as fallback
     }
 
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
         timestamps()
         timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
     }
 
     stages {
         stage('Checkout') {
             steps {
-                echo "📥 Cloning repository..."
+                echo "=========================================="
+                echo "CHECKOUT"
+                echo "=========================================="
                 checkout scm
+                sh 'chmod +x scripts/*.sh'
+                sh 'echo "Version: $(cat VERSION)"'
+                sh 'echo "Commit: $(git rev-parse --short HEAD)"'
+            }
+        }
+
+        stage('Install') {
+            steps {
+                echo "=========================================="
+                echo "INSTALL DEPENDENCIES"
+                echo "=========================================="
+                dir('service') {
+                    sh 'npm ci || npm install'
+                }
             }
         }
 
         stage('Lint') {
             steps {
-                echo "🔍 Running linters..."
-                sh 'chmod +x scripts/*.sh'
+                echo "=========================================="
+                echo "LINT"
+                echo "=========================================="
                 sh './scripts/lint.sh'
             }
+            // Pipeline FAILS if lint fails (set -e in script)
         }
 
-        stage('Unit Tests') {
+        stage('Test') {
             steps {
-                echo "🧪 Running unit tests..."
+                echo "=========================================="
+                echo "TEST"
+                echo "=========================================="
                 sh './scripts/test.sh'
             }
             post {
                 always {
+                    // Publish JUnit test results
                     junit allowEmptyResults: true, testResults: 'reports/junit.xml'
                 }
             }
+            // Pipeline FAILS if tests fail (set -e in script)
         }
 
         stage('Build') {
             steps {
-                echo "🏗️ Building package..."
+                echo "=========================================="
+                echo "BUILD"
+                echo "=========================================="
                 sh './scripts/build.sh'
-            }
-            post {
-                success {
-                    archiveArtifacts artifacts: 'dist/*', allowEmptyArchive: true
-                }
             }
         }
 
         stage('Docker Build') {
             steps {
-                echo "🐳 Building Docker image..."
+                echo "=========================================="
+                echo "DOCKER BUILD"
+                echo "=========================================="
                 sh './scripts/docker.sh'
             }
         }
 
-        stage('Artifact Publish') {
+        stage('Publish') {
             when {
                 branch 'main'
             }
             steps {
-                echo "📦 Publishing artifacts..."
+                echo "=========================================="
+                echo "PUBLISH"
+                echo "=========================================="
                 sh './scripts/publish.sh'
             }
         }
     }
 
     post {
-        success {
-            echo "✅ Pipeline completed successfully!"
-            echo "📦 Image: ${IMAGE_NAME}:${IMAGE_TAG}"
-        }
-        failure {
-            echo "❌ Pipeline failed!"
-        }
         always {
-            echo "🧹 Cleaning up workspace..."
+            echo "=========================================="
+            echo "ARCHIVING ARTIFACTS"
+            echo "=========================================="
+            
+            // Archive built packages
+            archiveArtifacts artifacts: 'dist/*.tgz', 
+                             allowEmptyArchive: true,
+                             fingerprint: true
+            
+            // Archive published artifacts
+            archiveArtifacts artifacts: 'artifacts/**/*', 
+                             allowEmptyArchive: true,
+                             fingerprint: true
+            
+            // Archive reports
+            archiveArtifacts artifacts: 'reports/**/*', 
+                             allowEmptyArchive: true
+        }
+        
+        success {
+            echo "=========================================="
+            echo "PIPELINE SUCCESS"
+            echo "=========================================="
+            echo "Version: ${VERSION}"
+            echo "Commit: ${COMMIT_HASH}"
+            echo "Image: ${IMAGE_NAME}:${VERSION}-${COMMIT_HASH}"
+        }
+        
+        failure {
+            echo "=========================================="
+            echo "PIPELINE FAILED"
+            echo "=========================================="
+        }
+        
+        cleanup {
             cleanWs()
         }
     }
 }
-

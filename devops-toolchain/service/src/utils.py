@@ -5,7 +5,7 @@ Utility functions for the DevOps Toolchain Service.
 import hashlib
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 
@@ -19,7 +19,7 @@ def generate_id(prefix: str = "id") -> str:
     Returns:
         Unique string identifier.
     """
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     hash_input = f"{prefix}-{timestamp}-{os.getpid()}"
     hash_value = hashlib.sha256(hash_input.encode()).hexdigest()[:12]
     return f"{prefix}-{hash_value}"
@@ -67,7 +67,7 @@ def format_timestamp(dt: Optional[datetime] = None) -> str:
         ISO 8601 formatted string.
     """
     if dt is None:
-        dt = datetime.utcnow()
+        dt = datetime.now(timezone.utc)
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -109,4 +109,3 @@ def bump_version(version_string: str, bump_type: str = "patch") -> str:
         patch += 1
     
     return f"{major}.{minor}.{patch}"
-

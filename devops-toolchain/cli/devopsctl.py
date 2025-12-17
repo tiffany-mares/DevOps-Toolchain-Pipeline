@@ -6,15 +6,15 @@ Provides a unified command interface for developers to interact with
 the pipeline locally and consistently.
 
 Usage:
-    devopsctl.py <command>
+    python devopsctl.py <command>
 
 Commands:
-    lint     Run linters (flake8, black)
-    test     Execute unit tests (pytest)
-    build    Build Python package
+    lint     Run linters (eslint, flake8)
+    test     Execute unit tests (jest, pytest)
+    build    Build packages
     docker   Build Docker image
     publish  Publish artifacts
-    all      Run complete pipeline
+    all      Run complete pipeline (lint -> test -> build -> docker -> publish)
     version  Show version information
     help     Show this help message
 """
@@ -31,6 +31,14 @@ SCRIPT_DIR = Path(__file__).parent.absolute()
 PROJECT_ROOT = SCRIPT_DIR.parent
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 
+# Enable UTF-8 output on Windows
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
+
 
 class Colors:
     """ANSI color codes for terminal output."""
@@ -42,28 +50,58 @@ class Colors:
     FAIL = '\033[91m'
     ENDC = '\033[0m'
     BOLD = '\033[1m'
+    
+    # Check if colors are supported
+    @staticmethod
+    def enabled():
+        return hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
+
+
+def safe_print(message: str) -> None:
+    """Print with fallback for encoding issues."""
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        # Fallback: remove non-ASCII characters
+        ascii_msg = message.encode('ascii', errors='ignore').decode('ascii')
+        print(ascii_msg)
 
 
 def print_header(message: str) -> None:
     """Print a formatted header message."""
-    print(f"\n{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.ENDC}")
-    print(f"{Colors.BOLD}{Colors.CYAN}  {message}{Colors.ENDC}")
-    print(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.ENDC}\n")
+    line = "=" * 60
+    if Colors.enabled():
+        safe_print(f"\n{Colors.BOLD}{Colors.CYAN}{line}{Colors.ENDC}")
+        safe_print(f"{Colors.BOLD}{Colors.CYAN}  {message}{Colors.ENDC}")
+        safe_print(f"{Colors.BOLD}{Colors.CYAN}{line}{Colors.ENDC}\n")
+    else:
+        safe_print(f"\n{line}")
+        safe_print(f"  {message}")
+        safe_print(f"{line}\n")
 
 
 def print_success(message: str) -> None:
     """Print a success message."""
-    print(f"{Colors.GREEN}✓ {message}{Colors.ENDC}")
+    if Colors.enabled():
+        safe_print(f"{Colors.GREEN}[OK] {message}{Colors.ENDC}")
+    else:
+        safe_print(f"[OK] {message}")
 
 
 def print_error(message: str) -> None:
     """Print an error message."""
-    print(f"{Colors.FAIL}✗ {message}{Colors.ENDC}")
+    if Colors.enabled():
+        safe_print(f"{Colors.FAIL}[FAIL] {message}{Colors.ENDC}")
+    else:
+        safe_print(f"[FAIL] {message}")
 
 
 def print_info(message: str) -> None:
     """Print an info message."""
-    print(f"{Colors.BLUE}ℹ {message}{Colors.ENDC}")
+    if Colors.enabled():
+        safe_print(f"{Colors.BLUE}[INFO] {message}{Colors.ENDC}")
+    else:
+        safe_print(f"[INFO] {message}")
 
 
 def run_script(script_name: str) -> int:
@@ -82,12 +120,19 @@ def run_script(script_name: str) -> int:
         print_error(f"Script not found: {script_path}")
         return 1
     
-    print_info(f"Running {script_name}...")
+    print_info(f"Running {script_name}.sh ...")
     
-    # Determine the shell to use based on OS
+    # Determine the shell to use
+    shell_cmd = None
+    
     if sys.platform == "win32":
-        # On Windows, use Git Bash or WSL if available
-        shell_cmd = ["bash", str(script_path)]
+        # Try Git Bash first, then WSL bash
+        git_bash = Path("C:/Program Files/Git/bin/bash.exe")
+        if git_bash.exists():
+            shell_cmd = [str(git_bash), str(script_path)]
+        else:
+            # Try regular bash (might be in PATH from Git Bash or WSL)
+            shell_cmd = ["bash", str(script_path)]
     else:
         shell_cmd = ["bash", str(script_path)]
     
@@ -95,95 +140,102 @@ def run_script(script_name: str) -> int:
         result = subprocess.run(
             shell_cmd,
             cwd=PROJECT_ROOT,
-            check=False
+            check=False,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"}
         )
         return result.returncode
     except FileNotFoundError:
-        print_error("Bash not found. Please install Git Bash or WSL on Windows.")
+        print_error("Bash not found!")
+        print_info("On Windows, install Git Bash: https://git-scm.com/downloads")
         return 1
 
 
 def cmd_lint() -> int:
     """Run linting checks."""
-    print_header("Running Linters")
+    print_header("LINT - Running Code Linters")
     return run_script("lint")
 
 
 def cmd_test() -> int:
     """Run unit tests."""
-    print_header("Running Unit Tests")
+    print_header("TEST - Running Unit Tests")
     return run_script("test")
 
 
 def cmd_build() -> int:
     """Build the package."""
-    print_header("Building Package")
+    print_header("BUILD - Building Packages")
     return run_script("build")
 
 
 def cmd_docker() -> int:
     """Build Docker image."""
-    print_header("Building Docker Image")
+    print_header("DOCKER - Building Docker Image")
     return run_script("docker")
 
 
 def cmd_publish() -> int:
     """Publish artifacts."""
-    print_header("Publishing Artifacts")
+    print_header("PUBLISH - Publishing Artifacts")
     return run_script("publish")
 
 
 def cmd_all() -> int:
     """Run the complete pipeline."""
-    print_header("Running Complete Pipeline")
+    print_header("PIPELINE - Running Complete CI/CD Pipeline")
     
     stages = [
-        ("Lint", cmd_lint),
-        ("Test", cmd_test),
-        ("Build", cmd_build),
-        ("Docker", cmd_docker),
-        ("Publish", cmd_publish),
+        ("LINT", cmd_lint),
+        ("TEST", cmd_test),
+        ("BUILD", cmd_build),
+        ("DOCKER", cmd_docker),
+        ("PUBLISH", cmd_publish),
     ]
     
     for stage_name, stage_func in stages:
-        print_info(f"Stage: {stage_name}")
+        safe_print(f"\n{'='*60}")
+        print_info(f"Starting Stage: {stage_name}")
+        safe_print(f"{'='*60}")
+        
         result = stage_func()
         
         if result != 0:
-            print_error(f"Pipeline failed at stage: {stage_name}")
+            print_error(f"Pipeline FAILED at stage: {stage_name}")
             return result
         
-        print_success(f"Stage {stage_name} completed successfully")
+        print_success(f"Stage {stage_name} completed")
     
-    print_header("Pipeline Completed Successfully! 🎉")
+    safe_print("")
+    print_header("PIPELINE COMPLETED SUCCESSFULLY!")
     return 0
 
 
 def cmd_version() -> int:
     """Show version information."""
-    print(f"devopsctl version {VERSION}")
+    safe_print(f"devopsctl version {VERSION}")
+    safe_print(f"Project root: {PROJECT_ROOT}")
     return 0
 
 
 def cmd_help() -> int:
     """Show help message."""
-    print(__doc__)
+    safe_print(__doc__)
     return 0
 
 
 def main() -> int:
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
-        description="DevOps Toolchain CLI",
+        description="DevOps Toolchain CLI - Run CI/CD pipeline locally",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  devopsctl.py lint      Run code linters
-  devopsctl.py test      Run unit tests
-  devopsctl.py build     Build the package
-  devopsctl.py docker    Build Docker image
-  devopsctl.py publish   Publish artifacts
-  devopsctl.py all       Run complete pipeline
+  python devopsctl.py lint      Run code linters
+  python devopsctl.py test      Run unit tests
+  python devopsctl.py build     Build the package
+  python devopsctl.py docker    Build Docker image
+  python devopsctl.py publish   Publish artifacts
+  python devopsctl.py all       Run complete pipeline
         """
     )
     
@@ -198,6 +250,11 @@ Examples:
         action="store_true",
         help="Enable verbose output"
     )
+    
+    # Handle no arguments
+    if len(sys.argv) == 1:
+        parser.print_help()
+        return 0
     
     args = parser.parse_args()
     
@@ -224,4 +281,3 @@ Examples:
 
 if __name__ == "__main__":
     sys.exit(main())
-

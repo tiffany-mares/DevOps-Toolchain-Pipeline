@@ -20,11 +20,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Version
+VERSION = "0.1.0"
+
 
 def get_version() -> str:
     """Get the current version of the service."""
-    from . import __version__
-    return __version__
+    return VERSION
 
 
 def get_config() -> Dict[str, Any]:
@@ -72,7 +74,6 @@ def process_task(task_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     """
     logger.info(f"Processing task: {task_id}")
     
-    # Simulate task processing
     result = {
         "task_id": task_id,
         "status": "completed",
@@ -115,4 +116,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

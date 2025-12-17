@@ -1,6 +1,9 @@
 #!/bin/bash
 # =============================================================================
-# publish.sh - Publish artifacts to registry
+# publish.sh - Publish artifacts to artifact repository
+# Jenkins Stage: Publish
+# Structure: artifacts/<name>/<version>/
+# Naming: name-version-commit.tgz
 # =============================================================================
 
 set -e
@@ -8,117 +11,103 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-echo "📦 Publishing artifacts..."
-echo "Project root: $PROJECT_ROOT"
+echo "=========================================="
+echo "PUBLISH STAGE"
+echo "=========================================="
 
 cd "$PROJECT_ROOT"
 
-# Configuration
+# =============================================================================
+# Version Source: VERSION file (single source of truth)
+# =============================================================================
+VERSION=$(cat VERSION 2>/dev/null || echo "0.1.0")
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "local")
+NAME="devops-toolchain-service"
 IMAGE_NAME="devops-toolchain"
-REGISTRY="${DOCKER_REGISTRY:-localhost:5000}"
-ARTIFACT_DIR="${ARTIFACT_DIR:-$PROJECT_ROOT/artifacts}"
 
-# Read version
-if [ -f "VERSION" ]; then
-    VERSION=$(cat VERSION)
-else
-    VERSION="0.1.0"
-fi
+# Artifact directory structure: artifacts/<name>/<version>/
+ARTIFACT_DIR="$PROJECT_ROOT/artifacts/${NAME}/${VERSION}"
 
-# Get git commit hash
-if command -v git &> /dev/null && [ -d ".git" ]; then
-    COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-else
-    COMMIT_HASH="unknown"
-fi
+echo "Name:       $NAME"
+echo "Version:    $VERSION"
+echo "Commit:     $COMMIT"
+echo "Tag:        ${NAME}-${VERSION}-${COMMIT}"
+echo "Output:     artifacts/${NAME}/${VERSION}/"
+echo ""
 
-IMAGE_TAG="${VERSION}-${COMMIT_HASH}"
-
-echo "📦 Version: ${VERSION}"
-echo "🏷️  Tag: ${IMAGE_TAG}"
-echo "🏠 Registry: ${REGISTRY}"
-
-# Create artifacts directory
+# Create artifact directory
 mkdir -p "$ARTIFACT_DIR"
 
 # =============================================================================
-# Publish Python Package
+# Copy NPM Package
 # =============================================================================
-echo ""
-echo "━━━ Publishing Python Package ━━━"
+echo "Publishing NPM package..."
 
-if [ -d "dist" ] && [ "$(ls -A dist/*.whl 2>/dev/null || ls -A dist/*.tar.gz 2>/dev/null)" ]; then
-    echo "Found artifacts in dist/"
-    
-    # Copy to artifacts directory
-    cp dist/* "$ARTIFACT_DIR/" 2>/dev/null || true
-    
-    # Check if twine is available for PyPI publishing
-    if command -v twine &> /dev/null; then
-        echo "Twine available - ready for PyPI upload"
-        echo "To publish to PyPI, run:"
-        echo "  twine upload dist/*"
-    else
-        echo "⚠️  Twine not installed. Install with: pip install twine"
-    fi
+TAGGED_TGZ="${NAME}-${VERSION}-${COMMIT}.tgz"
+VERSIONED_TGZ="${NAME}-${VERSION}.tgz"
+
+if [ -f "dist/${TAGGED_TGZ}" ]; then
+    cp "dist/${TAGGED_TGZ}" "$ARTIFACT_DIR/"
+    echo "  [OK] ${TAGGED_TGZ}"
+elif [ -f "dist/${VERSIONED_TGZ}" ]; then
+    # Rename with commit hash if not already tagged
+    cp "dist/${VERSIONED_TGZ}" "$ARTIFACT_DIR/${TAGGED_TGZ}"
+    echo "  [OK] ${TAGGED_TGZ}"
 else
-    echo "⚠️  No Python packages found in dist/"
-    echo "   Run './scripts/build.sh' first"
+    echo "  [FAIL] No .tgz found in dist/"
+    echo "         Run ./scripts/build.sh first"
+    exit 1
 fi
 
 # =============================================================================
-# Publish Docker Image
+# Save Docker Image (if available)
 # =============================================================================
 echo ""
-echo "━━━ Publishing Docker Image ━━━"
+echo "Publishing Docker image..."
 
-if command -v docker &> /dev/null; then
-    # Check if image exists
-    if docker images | grep -q "${IMAGE_NAME}"; then
-        echo "Pushing to registry: ${REGISTRY}"
-        
-        # Push to registry (may fail if registry is not accessible)
-        docker push "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}" 2>/dev/null || \
-            echo "⚠️  Could not push to ${REGISTRY} - registry may not be accessible"
-        
-        docker push "${REGISTRY}/${IMAGE_NAME}:latest" 2>/dev/null || \
-            echo "⚠️  Could not push latest tag"
-        
-        # Save image as tar for offline distribution
-        echo "Saving image to artifacts..."
-        docker save "${IMAGE_NAME}:${IMAGE_TAG}" | gzip > "$ARTIFACT_DIR/${IMAGE_NAME}-${IMAGE_TAG}.tar.gz"
-    else
-        echo "⚠️  Docker image not found. Run './scripts/docker.sh' first"
-    fi
+DOCKER_TAR="${IMAGE_NAME}-${VERSION}-${COMMIT}.tar.gz"
+
+if command -v docker &>/dev/null && docker image inspect "${IMAGE_NAME}:${VERSION}" &>/dev/null 2>&1; then
+    docker save "${IMAGE_NAME}:${VERSION}" | gzip > "$ARTIFACT_DIR/${DOCKER_TAR}"
+    echo "  [OK] ${DOCKER_TAR}"
 else
-    echo "⚠️  Docker not available"
+    echo "  [SKIP] Docker image not available"
 fi
 
 # =============================================================================
-# Generate manifest
+# Create Manifest
 # =============================================================================
 echo ""
-echo "━━━ Generating Artifact Manifest ━━━"
+echo "Creating manifest..."
 
-MANIFEST_FILE="$ARTIFACT_DIR/manifest.json"
-cat > "$MANIFEST_FILE" << EOF
+ARTIFACTS_LIST=$(ls -1 "$ARTIFACT_DIR" 2>/dev/null | grep -v manifest.json | sed 's/.*/"&"/' | paste -sd, - || echo "")
+
+cat > "$ARTIFACT_DIR/manifest.json" << EOF
 {
-    "name": "devops-toolchain",
+    "name": "${NAME}",
     "version": "${VERSION}",
-    "commit": "${COMMIT_HASH}",
-    "tag": "${IMAGE_TAG}",
-    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-    "artifacts": [
-        $(ls -1 "$ARTIFACT_DIR" 2>/dev/null | grep -v manifest.json | sed 's/.*/"&"/' | paste -sd, -)
-    ]
+    "commit": "${COMMIT}",
+    "tag": "${NAME}-${VERSION}-${COMMIT}",
+    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")",
+    "artifacts": [${ARTIFACTS_LIST}]
 }
 EOF
+echo "  [OK] manifest.json"
 
-echo "Manifest created: $MANIFEST_FILE"
-cat "$MANIFEST_FILE"
+# =============================================================================
+# Summary
+# =============================================================================
+echo ""
+echo "=========================================="
+echo "PUBLISHED ARTIFACTS"
+echo "=========================================="
+echo "Location: artifacts/${NAME}/${VERSION}/"
+echo ""
+ls -la "$ARTIFACT_DIR/"
 
 echo ""
-echo "✅ Publishing completed!"
-echo "📁 Artifacts available in: $ARTIFACT_DIR"
-ls -la "$ARTIFACT_DIR"
+echo "Manifest:"
+cat "$ARTIFACT_DIR/manifest.json"
 
+echo ""
+echo "[OK] Publish stage completed successfully"

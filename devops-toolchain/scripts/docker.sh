@@ -1,6 +1,8 @@
 #!/bin/bash
 # =============================================================================
-# docker.sh - Build Docker image
+# docker.sh - Build Docker image with version tagging
+# Jenkins Stage: Docker Build
+# Tags: name:version, name:version-commit, name:latest
 # =============================================================================
 
 set -e
@@ -8,61 +10,62 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-echo "🐳 Building Docker image..."
-echo "Project root: $PROJECT_ROOT"
+echo "=========================================="
+echo "DOCKER BUILD STAGE"
+echo "=========================================="
 
 cd "$PROJECT_ROOT"
 
-# Configuration
-IMAGE_NAME="devops-toolchain"
-REGISTRY="${DOCKER_REGISTRY:-localhost:5000}"
-
-# Read version
-if [ -f "VERSION" ]; then
-    VERSION=$(cat VERSION)
-else
-    VERSION="0.1.0"
-fi
-
-# Get git commit hash
-if command -v git &> /dev/null && [ -d ".git" ]; then
-    COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-else
-    COMMIT_HASH="unknown"
-fi
-
-IMAGE_TAG="${VERSION}-${COMMIT_HASH}"
-
-echo "📦 Image: ${IMAGE_NAME}"
-echo "🏷️  Tag: ${IMAGE_TAG}"
-echo "🏷️  Latest tag: latest"
-
 # Check if Docker is available
-if ! command -v docker &> /dev/null; then
-    echo "❌ Docker is not installed or not in PATH"
-    exit 1
+if ! command -v docker &>/dev/null; then
+    echo "[SKIP] Docker not installed - skipping Docker build"
+    echo "       Install Docker: https://docs.docker.com/get-docker/"
+    exit 0
 fi
 
-# Build the Docker image
+if ! docker info &>/dev/null; then
+    echo "[SKIP] Docker daemon not running - skipping Docker build"
+    exit 0
+fi
+
+# =============================================================================
+# Version Source: VERSION file (single source of truth)
+# =============================================================================
+VERSION=$(cat VERSION 2>/dev/null || echo "0.1.0")
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "local")
+IMAGE_NAME="devops-toolchain"
+
+# Tags
+TAG_VERSION="${IMAGE_NAME}:${VERSION}"
+TAG_COMMIT="${IMAGE_NAME}:${VERSION}-${COMMIT}"
+TAG_LATEST="${IMAGE_NAME}:latest"
+
+echo "Image:   $IMAGE_NAME"
+echo "Version: $VERSION"
+echo "Commit:  $COMMIT"
 echo ""
-echo "━━━ Building Docker image ━━━"
+echo "Tags:"
+echo "  - $TAG_VERSION"
+echo "  - $TAG_COMMIT"
+echo "  - $TAG_LATEST"
+echo ""
+
+# Build Docker image
+echo "Building Docker image..."
 docker build \
-    -t "${IMAGE_NAME}:${IMAGE_TAG}" \
-    -t "${IMAGE_NAME}:latest" \
-    -t "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}" \
-    -t "${REGISTRY}/${IMAGE_NAME}:latest" \
+    -t "$TAG_VERSION" \
+    -t "$TAG_COMMIT" \
+    -t "$TAG_LATEST" \
     -f docker/Dockerfile \
-    --build-arg VERSION="${VERSION}" \
-    --build-arg COMMIT_HASH="${COMMIT_HASH}" \
+    --build-arg VERSION="$VERSION" \
+    --build-arg COMMIT_HASH="$COMMIT" \
     .
 
 echo ""
-echo "━━━ Built images ━━━"
-docker images | grep "${IMAGE_NAME}" | head -10
+echo "=========================================="
+echo "DOCKER IMAGES"
+echo "=========================================="
+docker images | grep "$IMAGE_NAME" | head -5
 
 echo ""
-echo "✅ Docker build completed!"
-echo ""
-echo "To run the container:"
-echo "  docker run -it ${IMAGE_NAME}:latest"
-
+echo "[OK] Docker build stage completed successfully"
