@@ -1,0 +1,90 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_REGISTRY = 'localhost:5000'
+        IMAGE_NAME = 'devops-toolchain'
+        VERSION = sh(script: 'cat VERSION 2>/dev/null || echo "0.1.0"', returnStdout: true).trim()
+        COMMIT_HASH = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        IMAGE_TAG = "${VERSION}-${COMMIT_HASH}"
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo "📥 Cloning repository..."
+                checkout scm
+            }
+        }
+
+        stage('Lint') {
+            steps {
+                echo "🔍 Running linters..."
+                sh 'chmod +x scripts/*.sh'
+                sh './scripts/lint.sh'
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                echo "🧪 Running unit tests..."
+                sh './scripts/test.sh'
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true, testResults: 'reports/junit.xml'
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo "🏗️ Building package..."
+                sh './scripts/build.sh'
+            }
+            post {
+                success {
+                    archiveArtifacts artifacts: 'dist/*', allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                echo "🐳 Building Docker image..."
+                sh './scripts/docker.sh'
+            }
+        }
+
+        stage('Artifact Publish') {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo "📦 Publishing artifacts..."
+                sh './scripts/publish.sh'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Pipeline completed successfully!"
+            echo "📦 Image: ${IMAGE_NAME}:${IMAGE_TAG}"
+        }
+        failure {
+            echo "❌ Pipeline failed!"
+        }
+        always {
+            echo "🧹 Cleaning up workspace..."
+            cleanWs()
+        }
+    }
+}
+

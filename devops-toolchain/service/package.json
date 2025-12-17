@@ -1,0 +1,39 @@
+{
+  "name": "devops-toolchain-service",
+  "version": "0.1.0",
+  "description": "DevOps Toolchain Service - A sample service demonstrating CI/CD pipeline capabilities",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "keywords": [
+    "devops",
+    "ci-cd",
+    "toolchain",
+    "automation"
+  ],
+  "author": "DevOps Team",
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^9.39.2",
+    "jest": "^30.2.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "*.js",
+      "!jest.config.js"
+    ],
+    "coverageDirectory": "coverage",
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html"
+    ]
+  }
+}
